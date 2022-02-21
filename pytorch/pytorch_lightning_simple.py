@@ -1,14 +1,11 @@
 """
 Optuna example that optimizes multi-layer perceptrons using PyTorch Lightning.
-
 In this example, we optimize the validation accuracy of hand-written digit recognition using
 PyTorch Lightning, and FashionMNIST. We optimize the neural network architecture. As it is too time
 consuming to use the whole FashionMNIST dataset, we here use a small subset of it.
-
 You can run this example as follows, pruning can be turned on and off with the `--pruning`
 argument.
     $ python pytorch_lightning_simple.py [--pruning]
-
 """
 import argparse
 import os
@@ -61,9 +58,11 @@ class Net(nn.Module):
 
 
 class LightningNet(pl.LightningModule):
-    def __init__(self, dropout: float, output_dims: List[int]):
+    def __init__(self, dropout: float, output_dims: List[int], optimizer_name, lr: float):
         super().__init__()
         self.model = Net(dropout, output_dims)
+        self.optimizer_name = optimizer_name
+        self.lr = lr
 
     def forward(self, data: torch.Tensor) -> torch.Tensor:
         return self.model(data.view(-1, 28 * 28))
@@ -82,7 +81,9 @@ class LightningNet(pl.LightningModule):
         self.log("hp_metric", accuracy, on_step=False, on_epoch=True)
 
     def configure_optimizers(self) -> optim.Optimizer:
-        return optim.Adam(self.model.parameters())
+        optimizer = getattr(optim, self.optimizer_name)(self.model.parameters(), lr=self.lr)
+        return optimizer
+        # return optim.Adam(self.model.parameters())
 
 
 class FashionMNISTDataModule(pl.LightningDataModule):
@@ -121,11 +122,13 @@ def objective(trial: optuna.trial.Trial) -> float:
     # We optimize the number of layers, hidden units in each layer and dropouts.
     n_layers = trial.suggest_int("n_layers", 1, 3)
     dropout = trial.suggest_float("dropout", 0.2, 0.5)
+    optimizer_name = trial.suggest_categorical('optimizer', ['Adam', 'RMSprop', 'SGD'])
+    lr = trial.suggest_loguniform('lr', 1e-5, 1e-1)
     output_dims = [
         trial.suggest_int("n_units_l{}".format(i), 4, 128, log=True) for i in range(n_layers)
     ]
 
-    model = LightningNet(dropout, output_dims)
+    model = LightningNet(dropout, output_dims, optimizer_name, lr)
     datamodule = FashionMNISTDataModule(data_dir=DIR, batch_size=BATCHSIZE)
 
     trainer = pl.Trainer(
